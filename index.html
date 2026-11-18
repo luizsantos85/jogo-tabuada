@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jogo da Tabuada</title>
+  <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.prod.js"></script>
+  <style>
+    :root {
+      --bg1: #ffd6e8; --bg2: #c9e7ff; --card: #fff; --text: #555;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg1: #3a2232; --bg2: #1d2f42; --card: #fff; --text: #555;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg1: #3a2232; --bg2: #1d2f42; --card: #fff; --text: #555;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Comic Sans MS", "Trebuchet MS", sans-serif;
+      background: #c9e7ff;
+      background: linear-gradient(135deg, var(--bg1), var(--bg2));
+      padding: 16px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.15);
+      padding: 32px 24px;
+      width: 100%;
+      max-width: 440px;
+      text-align: center;
+    }
+    h1 { color: #e05297; margin: 0 0 8px; font-size: 2rem; }
+    p { color: var(--text); font-size: 1.1rem; }
+    .progresso { color: #888; font-size: 1rem; margin-bottom: 8px; }
+    .revisao { color: #e08a00; font-weight: bold; }
+    .barra { height: 12px; background: #eee; border-radius: 6px; overflow: hidden; margin-bottom: 16px; }
+    .barra div { height: 100%; background: #7bc96f; transition: width .3s; }
+    .relogio { display: flex; align-items: center; gap: 10px; font-size: 1.2rem; color: #3a6ea5; }
+    .relogio .barra { flex: 1; margin: 0; height: 14px; }
+    .relogio .barra div { background: #3a6ea5; transition: width .1s linear, background .3s; }
+    .relogio.pouco { color: #d63c3c; }
+    .relogio.pouco .barra div { background: #d63c3c; }
+    .relogio span { min-width: 2.5em; font-weight: bold; }
+    .pergunta { font-size: 3rem; font-weight: bold; color: #3a6ea5; margin: 16px 0; }
+    input {
+      font-size: 2rem; width: 160px; text-align: center; padding: 8px;
+      border: 3px solid #c9e7ff; border-radius: 12px; outline: none;
+    }
+    input:focus { border-color: #3a6ea5; }
+    button {
+      display: block; margin: 20px auto 0; font-size: 1.3rem; font-family: inherit;
+      padding: 12px 32px; border: none; border-radius: 14px; cursor: pointer;
+      background: #e05297; color: #fff; box-shadow: 0 4px 0 #b13a74;
+    }
+    button:active { transform: translateY(2px); box-shadow: 0 2px 0 #b13a74; }
+    button:disabled { opacity: .5; cursor: default; }
+    .feedback { font-size: 1.4rem; margin-top: 16px; min-height: 2em; }
+    .certo { color: #2e9e3e; }
+    .errado { color: #d63c3c; }
+    .aviso { color: #e08a00; }
+    .placar { display: flex; gap: 16px; justify-content: center; margin: 24px 0; }
+    .placar div { flex: 1; padding: 16px; border-radius: 16px; font-size: 1.1rem; }
+    .placar strong { display: block; font-size: 2.5rem; }
+    .bg-certo { background: #e3f7e6; color: #2e9e3e; }
+    .bg-errado { background: #fde6e6; color: #d63c3c; }
+    ul { list-style: none; padding: 0; text-align: left; }
+    li { padding: 6px 10px; border-radius: 8px; margin-bottom: 4px; background: #fafafa; color: #333; }
+  </style>
+</head>
+<body>
+  <div id="app" class="card">
+    <!-- Tela inicial -->
+    <template v-if="tela === 'inicio'">
+      <h1>🧮 Jogo da Tabuada</h1>
+      <p>Responda {{ TOTAL }} contas da tabuada do 2 ao 12.<br>
+        Você tem {{ TEMPO }} segundos para cada uma!<br>Boa sorte!</p>
+      <button @click="iniciar">Começar</button>
+    </template>
+
+    <!-- Jogo -->
+    <template v-else-if="tela === 'jogo'">
+      <div class="progresso">
+        {{ respondidas }} de {{ TOTAL }} respondidas
+        <span v-if="atual.pulada" class="revisao"> · voltando na que ficou</span>
+      </div>
+      <div class="barra"><div :style="{ width: (respondidas / TOTAL * 100) + '%' }"></div></div>
+
+      <div class="relogio" :class="{ pouco: tempoRestante <= 3 }">
+        ⏱️
+        <div class="barra"><div :style="{ width: (tempoRestante / TEMPO * 100) + '%' }"></div></div>
+        <span>{{ Math.ceil(tempoRestante) }}s</span>
+      </div>
+
+      <div class="pergunta">{{ atual.a }} × {{ atual.b }} = ?</div>
+
+      <form @submit.prevent="estado === 'respondendo' ? responder() : proxima()">
+        <input
+          ref="campo"
+          v-model="resposta"
+          type="number"
+          inputmode="numeric"
+          :disabled="estado !== 'respondendo'"
+          autofocus
+        />
+        <div class="feedback">
+          <span v-if="estado === 'pulada'" class="aviso">⏰ Acabou o tempo! Essa volta no final.</span>
+          <template v-else-if="estado === 'respondido'">
+            <span v-if="acertou" class="certo">🎉 Muito bem!</span>
+            <span v-else-if="atual.resposta === null" class="errado">⏰ Acabou o tempo! A resposta é {{ atual.a * atual.b }}</span>
+            <span v-else class="errado">😕 Ops! A resposta é {{ atual.a * atual.b }}</span>
+          </template>
+        </div>
+        <button v-if="estado === 'respondendo'" type="submit" :disabled="resposta === ''">Responder</button>
+        <button v-else type="submit" ref="botaoProxima">
+          {{ pos + 1 < fila.length ? 'Próxima ➜' : 'Ver resultado' }}
+        </button>
+      </form>
+    </template>
+
+    <!-- Resultado -->
+    <template v-else>
+      <h1>{{ mensagemFinal }}</h1>
+      <div class="placar">
+        <div class="bg-certo"><strong>{{ acertos }}</strong>acertos ✅</div>
+        <div class="bg-errado"><strong>{{ erros }}</strong>erros ❌</div>
+      </div>
+      <template v-if="erros > 0">
+        <p>Vamos revisar:</p>
+        <ul>
+          <li v-for="(q, i) in respostasErradas" :key="i">
+            {{ q.a }} × {{ q.b }} = <strong class="certo">{{ q.a * q.b }}</strong>
+            <span class="errado" v-if="q.resposta === null">(acabou o tempo)</span>
+            <span class="errado" v-else>(você respondeu {{ q.resposta }})</span>
+          </li>
+        </ul>
+      </template>
+      <button @click="iniciar">Jogar de novo</button>
+    </template>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          TOTAL: 12,
+          TEMPO: 15,            // segundos por pergunta
+          tela: 'inicio',
+          perguntas: [],
+          fila: [],            // ordem das perguntas; as puladas voltam para o fim
+          pos: 0,
+          resposta: '',
+          estado: 'respondendo', // 'respondendo' | 'respondido' | 'pulada'
+          acertou: false,
+          tempoRestante: 15,
+          timerId: null,
+          pularId: null,
+        };
+      },
+      computed: {
+        atual() { return this.perguntas[this.fila[this.pos]]; },
+        respondidas() { return this.perguntas.filter(q => q.finalizada).length; },
+        acertos() { return this.perguntas.filter(q => q.correta).length; },
+        erros() { return this.TOTAL - this.acertos; },
+        respostasErradas() { return this.perguntas.filter(q => !q.correta); },
+        mensagemFinal() {
+          if (this.acertos === this.TOTAL) return '🏆 Perfeito!';
+          if (this.acertos >= 7) return '🌟 Muito bom!';
+          if (this.acertos >= 5) return '👍 Bom trabalho!';
+          return '💪 Continue praticando!';
+        },
+      },
+      methods: {
+        gerarPerguntas() {
+          // Todas as combinações: tabuada do 2 ao 12, multiplicando de 1 a 10
+          const todas = [];
+          for (let a = 2; a <= 12; a++) {
+            for (let b = 1; b <= 10; b++) todas.push({ a, b });
+          }
+          // Embaralha (Fisher-Yates) e pega as 10 primeiras, sem repetir
+          for (let i = todas.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [todas[i], todas[j]] = [todas[j], todas[i]];
+          }
+          return todas.slice(0, this.TOTAL).map(q => ({
+            ...q, resposta: null, correta: false, finalizada: false, pulada: false,
+          }));
+        },
+        iniciar() {
+          this.pararTimers();
+          this.perguntas = this.gerarPerguntas();
+          this.fila = this.perguntas.map((_, i) => i);
+          this.pos = 0;
+          this.tela = 'jogo';
+          this.novaPergunta();
+        },
+        novaPergunta() {
+          this.resposta = '';
+          this.estado = 'respondendo';
+          this.acertou = false;
+          this.iniciarTimer();
+          this.$nextTick(() => this.$refs.campo?.focus());
+        },
+        iniciarTimer() {
+          this.pararTimers();
+          const fim = Date.now() + this.TEMPO * 1000;
+          this.tempoRestante = this.TEMPO;
+          this.timerId = setInterval(() => {
+            this.tempoRestante = Math.max(0, (fim - Date.now()) / 1000);
+            if (this.tempoRestante === 0) this.tempoEsgotado();
+          }, 100);
+        },
+        pararTimers() {
+          clearInterval(this.timerId);
+          clearTimeout(this.pularId);
+          this.timerId = this.pularId = null;
+        },
+        tempoEsgotado() {
+          this.pararTimers();
+          const q = this.atual;
+          if (!q.pulada) {
+            // 1ª vez: manda pro fim da fila e segue sozinho
+            q.pulada = true;
+            this.fila.push(this.fila[this.pos]);
+            this.estado = 'pulada';
+            this.pularId = setTimeout(() => this.proxima(), 1500);
+          } else {
+            // 2ª vez (já é a volta): conta como erro
+            q.resposta = null;
+            q.correta = false;
+            q.finalizada = true;
+            this.acertou = false;
+            this.estado = 'respondido';
+            this.$nextTick(() => this.$refs.botaoProxima?.focus());
+          }
+        },
+        responder() {
+          if (this.resposta === '' || this.estado !== 'respondendo') return;
+          this.pararTimers();
+          const q = this.atual;
+          q.resposta = Number(this.resposta);
+          q.correta = q.resposta === q.a * q.b;
+          q.finalizada = true;
+          this.acertou = q.correta;
+          this.estado = 'respondido';
+          this.$nextTick(() => this.$refs.botaoProxima?.focus());
+        },
+        proxima() {
+          this.pararTimers();
+          if (this.pos + 1 >= this.fila.length) {
+            this.tela = 'resultado';
+            return;
+          }
+          this.pos++;
+          this.novaPergunta();
+        },
+      },
+    }).mount('#app');
+  </script>
+</body>
+</html>
